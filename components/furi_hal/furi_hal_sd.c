@@ -9,6 +9,7 @@
 #include "furi_hal_sd.h"
 #include "../fatfs.h"
 #include "furi_hal_resources.h"
+#include BOARD_INCLUDE
 #include "furi_hal_spi.h"
 #include "furi_hal_spi_bus.h"
 
@@ -26,7 +27,10 @@ static const char* TAG = "FuriHalSd";
 
 #define SD_FATFS_DRIVE "0:"
 #define SD_SPI_HOST    SPI2_HOST
-#define SD_MAX_FREQ    (20 * 1000) /* 20 MHz — conservative for shared bus */
+#define SD_MAX_FREQ    (5 * 1000) /* 5 MHz — Dupont wires + TFT SD slot behind
+                                  * resistor level-shifters + 3 devices on one
+                                  * bus CRC-fail at 20 MHz; 5 MHz mounts
+                                  * reliably, plenty for config/asset files */
 #define SD_BOUNCE_SECTORS 8 /* 4 KiB persistent DMA bounce buffer */
 
 static sdmmc_card_t* sd_card = NULL;
@@ -37,6 +41,25 @@ static bool sd_disk_status_check = false;
 static bool sd_mounted = false;
 static const BYTE sd_pdrv = 0;
 static uint8_t* sd_bounce_buf = NULL;
+
+/* Last mount-failure diagnosis, shown on the Settings → Storage → About SD
+ * Card screen so card problems are visible without a serial monitor.
+ * Stages: "no_slot" (no CS in board header), "host_conflict" (bus reserved),
+ * "host_init", "init_dev", "no_mem", "card_init" (card silent: wiring, power,
+ * seating or incompatible card), "fat" (card talks but no FAT volume:
+ * reformat FAT32), "ok". err is esp_err_t, or FRESULT for the "fat" stage. */
+static const char* s_sd_last_stage = "never_tried";
+static int s_sd_last_err = 0;
+
+static void sd_note_fail(const char* stage, int err) {
+    s_sd_last_stage = stage;
+    s_sd_last_err = err;
+}
+
+void furi_hal_sd_last_error(char* out, size_t outlen) {
+    if(!out || !outlen) return;
+    snprintf(out, outlen, "%s E%X", s_sd_last_stage, (unsigned)s_sd_last_err);
+}
 
 static bool sd_ensure_bounce_buf(void) {
     if(sd_bounce_buf) return true;
@@ -535,11 +558,24 @@ static bool sd_prepare_card(void) {
         return true;
     }
 
+    /* A board that wires no chip-select for the slot has no card slot at all
+     * (BOARD_PIN_SD_CS is left at the UINT16_MAX "unused resource" sentinel in
+     * every board header). Driving SDSPI at a bogus CS makes every mount retry
+     * burn a full init + ~600 ms diagnostic probe — ~1.5 s of extra black boot
+     * screen — and ends in a "card is broken" storage state that apps trip over.
+     * Fail out immediately and say why instead. */
+    if(gpio_sdcard_cs.pin == UINT16_MAX) {
+        ESP_LOGW(TAG, "No SD slot on this board (BOARD_PIN_SD_CS unused) — card init skipped");
+        sd_note_fail("no_slot", 0);
+        return false;
+    }
+
     if(sd_host_conflicts_with(&furi_hal_spi_bus_external) ||
        sd_host_conflicts_with(&furi_hal_spi_bus_subghz)) {
         ESP_LOGW(
             TAG,
             "Skipping SD init because SPI2_HOST is reserved for the external CC1101 pin set");
+        sd_note_fail("host_conflict", 0);
         return false;
     }
 
@@ -571,32 +607,51 @@ static bool sd_prepare_card(void) {
     furi_hal_spi_bus_lock();
     do {
         ret = sdspi_host_init();
-        if(ret != ESP_OK) break;
+        if(ret != ESP_OK) {
+            sd_note_fail("host_init", ret);
+            break;
+        }
 
         ret = sdspi_host_init_device(&dev_cfg, &sd_handle);
-        if(ret != ESP_OK) break;
+        if(ret != ESP_OK) {
+            sd_note_fail("init_dev", ret);
+            break;
+        }
 
         sd_card = calloc(1, sizeof(sdmmc_card_t));
         if(sd_card == NULL) {
             ret = ESP_ERR_NO_MEM;
+            sd_note_fail("no_mem", ret);
             break;
         }
 
         host.slot = sd_handle;
         ret = sdmmc_card_init(&host, sd_card);
+        if(ret != ESP_OK) {
+            sd_note_fail("card_init", ret);
+            break;
+        }
     } while(false);
     furi_hal_spi_bus_unlock();
 
     if(ret != ESP_OK) {
         ESP_LOGE(TAG, "SD init failed: %s", esp_err_to_name(ret));
-        sd_run_mount_diagnostics(&dev_cfg, &host);
+        /* Release the failed attempt FIRST (removes the device, deinits the
+         * host, frees the bus). A transport-level failure (CRC/timeout) can
+         * leave the SPI peripheral mid-transaction; re-driving probe commands
+         * on that wedged host trips HAL_ASSERT in spi_hal_setup_trans and
+         * abort()s the boot into a reboot loop. Releasing first returns the
+         * hardware to a clean state so the diagnostics below (which do their
+         * own init/deinit) probe safely. */
         sd_release_host();
+        sd_run_mount_diagnostics(&dev_cfg, &host);
         return false;
     }
 
     fatfs_init();
     sd_register_fatfs_diskio();
     sd_initialized = true;
+    sd_note_fail("ok", 0);
 
     sdmmc_card_print_info(stdout, sd_card);
     return true;
@@ -656,7 +711,14 @@ FuriStatus furi_hal_sd_info(FuriHalSdInfo* info) {
 }
 
 uint8_t furi_hal_sd_max_mount_retry_count(void) {
+#if defined(BOARD_SD_OPTIONAL) && BOARD_SD_OPTIONAL
+    /* The card is optional on this board (or the socket is empty most of the
+     * time) — one retry is enough. The default three-attempt loop only adds
+     * dead time to every boot on a slot that usually has nothing in it. */
+    return 2;
+#else
     return 3;
+#endif
 }
 
 bool furi_hal_sd_mount(void) {
@@ -666,6 +728,7 @@ bool furi_hal_sd_mount(void) {
     const FRESULT result = f_mount(&fatfs_object, SD_FATFS_DRIVE, 1);
     if(result != FR_OK && result != FR_NO_FILESYSTEM) {
         ESP_LOGE(TAG, "FatFs mount failed: %d", result);
+        sd_note_fail("fat", (int)result);
         return false;
     }
 

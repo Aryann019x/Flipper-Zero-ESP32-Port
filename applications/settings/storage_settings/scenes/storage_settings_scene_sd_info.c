@@ -1,4 +1,5 @@
 #include "../storage_settings.h"
+#include <furi_hal_sd.h>
 
 static void storage_settings_scene_sd_info_dialog_callback(DialogExResult result, void* context) {
     StorageSettings* app = context;
@@ -10,6 +11,10 @@ void storage_settings_scene_sd_info_on_enter(void* context) {
     StorageSettings* app = context;
     DialogEx* dialog_ex = app->dialog_ex;
 
+    /* Try a live mount first so this screen diagnoses the card as-inserted
+     * (returns immediately when already mounted; retries only when needed). */
+    storage_sd_mount(app->fs_api);
+
     SDInfo sd_info;
     FS_Error sd_status = storage_sd_info(app->fs_api, &sd_info);
 
@@ -19,10 +24,18 @@ void storage_settings_scene_sd_info_on_enter(void* context) {
     dialog_ex_set_result_callback(dialog_ex, storage_settings_scene_sd_info_dialog_callback);
 
     if(sd_status != FSE_OK) {
+        char why[32];
+        furi_hal_sd_last_error(why, sizeof(why));
+        /* Stage-specific hint: "fat" means the card talks but has no FAT
+         * volume (reformat FAT32); anything else is electrical (slot wiring,
+         * 3.3V power, seating, card compatibility). */
+        const char* hint =
+            (strncmp(why, "fat ", 4) == 0) ? "Reformat FAT32." : "Check wires + 3V3.";
+        furi_string_printf(app->text_string, "Why: %s\n%s", why, hint);
         dialog_ex_set_icon(dialog_ex, 83, 22, &I_WarningDolphinFlip_45x42);
         dialog_ex_set_header(dialog_ex, "SD Card Not Mounted", 64, 3, AlignCenter, AlignTop);
         dialog_ex_set_text(
-            dialog_ex, "Try to reinsert\nor format SD\ncard.", 3, 19, AlignLeft, AlignTop);
+            dialog_ex, furi_string_get_cstr(app->text_string), 3, 19, AlignLeft, AlignTop);
         dialog_ex_set_center_button_text(dialog_ex, "Ok");
     } else {
         furi_string_printf(

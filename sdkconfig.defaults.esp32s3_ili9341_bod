@@ -1,0 +1,15 @@
+# Brownout-recovery knobs for esp32s3_ili9341_bod (16 MB / octal-PSRAM DIY).
+# Merged ON TOP OF sdkconfig.defaults (same basis as esp32s3_ili9341_diy,
+# which has no board file of its own) when building with:
+#   idf.py -B build_s3_ili9341_bod -DFLIPPER_BOARD=esp32s3_ili9341_bod build
+#
+# For boards whose 5 V rail sags under the WiFi/BLE + backlight boot peak
+# ("BOD: Brownout detector was triggered" loop in the serial log):
+#  - REDUCE_TX_POWER: after a brownout reset, the PHY steps down TX power so
+#    the board stays up instead of resetting forever. Costs WiFi range.
+#  - MAX_WIFI_TX_POWER 14 dBm (default 20): lowers the peak from the very
+#    first boot, so even the first brownout may not happen. Costs range.
+# A proper supply (5 V / 2 A+, short data cable) is still the real fix;
+# this just lets a marginal board boot and run with shorter WiFi reach.
+CONFIG_ESP_PHY_REDUCE_TX_POWER=y
+CONFIG_ESP_PHY_MAX_WIFI_TX_POWER=14

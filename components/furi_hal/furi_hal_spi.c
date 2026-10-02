@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <driver/spi_master.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
 
@@ -151,7 +152,12 @@ static bool furi_hal_spi_bus_init_if_needed(FuriHalSpiBus* bus, const FuriHalSpi
         .sclk_io_num = handle->sck->pin,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 4096,
+        /* The LCD shares this bus and its own spi_bus_initialize() is a no-op
+         * (we get here first), so THIS limit governs every panel flush: a
+         * full-width stripe of BOARD_LCD_H_RES * 8 rows * 2 bytes. 4096 was
+         * enough for 240px-wide portrait panels but silently truncates/fails
+         * 320px landscape ones (320*8*2 = 5120). Keep headroom above that. */
+        .max_transfer_sz = 8192,
     };
 
     esp_err_t err = spi_bus_initialize(bus->host_id, &bus_config, SPI_DMA_CH_AUTO);
@@ -205,6 +211,40 @@ void furi_hal_spi_bus_handle_init(const FuriHalSpiBusHandle* handle) {
 
     spi_device_handle_t device = NULL;
     esp_err_t err = spi_bus_add_device(bus->host_id, &dev_config, &device);
+    /* Pool exhaustion (ESP32 grants 3 CS slots: LCD + touch + SubGHz already
+     * hold them on touch boards, so a 4th radio add fails) surfaces as
+     * ESP_ERR_NO_MEM via IDF's `goto nomem` — same code as genuine heap
+     * exhaustion. Tell them apart: device registration needs ~200 bytes, so
+     * with kilobytes free the pool must be the problem. Only then park the
+     * idle sibling radio's slot and retry (the two radio footprints share one
+     * physical CS, so at most one module is present). Fallback only: boards
+     * with free slots never reach here, so ili9341/S3 behaviour is unchanged.
+     * Genuine OOM fails gracefully WITHOUT touching the sibling. */
+    bool pool_full = (err == ESP_ERR_NOT_FOUND) ||
+                     (err == ESP_ERR_NO_MEM &&
+                      heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) > 4096);
+    if(pool_full) {
+        const FuriHalSpiBusHandle* sibling = NULL;
+        if(mutable_handle == &furi_hal_spi_bus_handle_nrf24) {
+            sibling = &furi_hal_spi_bus_handle_subghz;
+        } else if(mutable_handle == &furi_hal_spi_bus_handle_subghz) {
+            sibling = &furi_hal_spi_bus_handle_nrf24;
+        }
+        if(sibling && sibling->bus == bus && sibling->device &&
+           bus->current_handle != sibling) {
+            FuriMutex* m = furi_hal_spi_get_mutex(bus);
+            if(furi_mutex_acquire(m, FuriWaitForever) == FuriStatusOk) {
+                if(sibling->device && bus->current_handle != sibling) {
+                    ESP_LOGW(TAG, "no free CS slot: parking idle radio handle to make room");
+                    spi_bus_remove_device((spi_device_handle_t)sibling->device);
+                    ((FuriHalSpiBusHandle*)sibling)->device = NULL;
+                    ((FuriHalSpiBusHandle*)sibling)->initialized = false;
+                    err = spi_bus_add_device(bus->host_id, &dev_config, &device);
+                }
+                furi_mutex_release(m);
+            }
+        }
+    }
     if(err != ESP_OK) {
         ESP_LOGW(TAG, "spi_bus_add_device failed: %s", esp_err_to_name(err));
         mutable_handle->initialized = false;
@@ -326,8 +366,15 @@ bool furi_hal_spi_bus_trx(
         .rx_buffer = rx_buffer,
     };
 
-    esp_err_t err =
-        spi_device_polling_transmit((spi_device_handle_t)handle->device, &transaction);
+    /* A polling transfer fails with INVALID_STATE while the display's DMA
+     * owns the bus (e.g. the scene-enter redraw that always coincides with a
+     * radio probe). Retry across a full frame instead of failing instantly:
+     * idle buses succeed on the first try, so this changes nothing there. */
+    esp_err_t err = ESP_ERR_INVALID_STATE;
+    for(int attempt = 0; attempt < 50 && err == ESP_ERR_INVALID_STATE; attempt++) {
+        if(attempt > 0) esp_rom_delay_us(2000);
+        err = spi_device_polling_transmit((spi_device_handle_t)handle->device, &transaction);
+    }
     if(err != ESP_OK) {
         ESP_LOGW(TAG, "spi_device_polling_transmit failed: %s", esp_err_to_name(err));
         furi_hal_spi_fill_stub_rx(rx_buffer, size);

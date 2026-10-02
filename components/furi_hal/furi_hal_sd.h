@@ -86,6 +86,15 @@ bool furi_hal_sd_write_sectors_raw(uint32_t sector, const void* buf, uint32_t co
 /** Get total sector count of the active card, or 0 if not initialized. */
 uint32_t furi_hal_sd_sector_count(void);
 
+/** Last mount-failure diagnosis for the on-screen SD status (no monitor needed).
+ *  Format: "<stage> E<hex-err>", e.g. "card_init E107" (card silent: check
+ *  slot wiring, power, seating, compatibility) or "fat ED" (card talks but no
+ *  FAT volume: reformat FAT32).
+ *  @param[out] out     buffer to fill (always NUL-terminated)
+ *  @param outlen       buffer size in bytes
+ */
+void furi_hal_sd_last_error(char* out, unsigned outlen);
+
 /** Get sector size of the active card in bytes, or 0 if not initialized. */
 uint16_t furi_hal_sd_sector_size(void);
 

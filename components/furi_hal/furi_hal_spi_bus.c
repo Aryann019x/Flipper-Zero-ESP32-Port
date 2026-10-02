@@ -14,6 +14,11 @@ void furi_hal_spi_bus_lock(void) {
     furi_check(furi_mutex_acquire(furi_hal_spi_bus_mutex, FuriWaitForever) == FuriStatusOk);
 }
 
+bool furi_hal_spi_bus_try_lock(void) {
+    furi_hal_spi_bus_init();
+    return furi_mutex_acquire(furi_hal_spi_bus_mutex, 0) == FuriStatusOk;
+}
+
 void furi_hal_spi_bus_unlock(void) {
     furi_check(furi_hal_spi_bus_mutex);
     furi_check(furi_mutex_release(furi_hal_spi_bus_mutex) == FuriStatusOk);

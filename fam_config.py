@@ -82,13 +82,13 @@ APPS = [
 
 # Boards without NFC / IR hardware – exclude the corresponding apps
 _board = os.environ.get("FLIPPER_BOARD", "")
-_boards_without_nfc = {"waveshare_c6", "waveshare_c6_1.9", "waveshare_c6_1.47"}
-_boards_without_ir = {"waveshare_c6", "waveshare_c6_1.9", "waveshare_c6_1.47"}
+_boards_without_nfc = {"waveshare_c6", "waveshare_c6_1.9", "waveshare_c6_1.47", "esp32_ili9341_diy", "esp32s3_st7789_diy", "esp32_st7789_diy", "esp32s3_ili9341_diy", "esp32s3_ili9341_8mb", "esp32s3_ili9341_16mb_quad", "esp32s3_st7789_8mb", "esp32s3_st7789_16mb_quad", "esp32s3_ili9341_bod"}
+_boards_without_ir = {"waveshare_c6", "waveshare_c6_1.9", "waveshare_c6_1.47", "esp32_ili9341_diy", "esp32_st7789_diy"}
 
 # Wolf3D shares Doom's requirements (PSRAM, ST7789 320xN, I2S speaker).
 # Doom läuft ebenfalls nur auf T-Embed (PSRAM + 16 MB Flash) — wird aber als
 # externer FAP gebaut (steht nicht in APPS), Block bleibt unten zur Klarheit.
-_boards_without_wolf3d = {"waveshare_c6", "waveshare_c6_1.9", "waveshare_c6_1.47"}
+_boards_without_wolf3d = {"waveshare_c6", "waveshare_c6_1.9", "waveshare_c6_1.47", "esp32_ili9341_diy", "esp32_st7789_diy"}
 
 if _board in _boards_without_nfc:
     APPS = [a for a in APPS if a != "nfc"]
@@ -109,6 +109,14 @@ if _board in _boards_without_subghz:
 
 if _board in _boards_without_nrf24:
     APPS = [a for a in APPS if a != "nrf24"]
+
+# Classic ESP32 (WROOM32, 4MB flash / no PSRAM): the Streaming app (AirPlay/
+# DLNA/Chromecast + Helix MP3) needs far more heap + flash than this target
+# has. Excluded for size (~30KB static DRAM, ~200KB+ flash).
+_boards_without_streaming = {"esp32_ili9341_diy", "esp32_st7789_diy"}
+
+if _board in _boards_without_streaming:
+    APPS = [a for a in APPS if a != "streaming"]
 
 # NOTE: cli_vcp and dolphin look like easy RAM wins (~4KB stack each) but both
 # are hard-wired into the desktop service: desktop.c calls cli_vcp_enable/disable
@@ -131,4 +139,5 @@ if _board in _boards_without_wolf3d:
 
 EXTRA_EXT_APPS = []
 TARGET_HW = 32
+# Debug lever: set an app name (e.g. "clock") to auto-start it at boot.
 AUTORUN_APP = ""

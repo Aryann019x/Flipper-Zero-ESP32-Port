@@ -109,12 +109,23 @@ void nrf24_hw_ce(bool high) {
 }
 
 bool nrf24_hw_probe(void) {
-    nrf24_hw_write_reg(NRF_REG_CONFIG, NRF_CONFIG_PWR_UP);
-    esp_rom_delay_us(5000);
-    nrf24_hw_write_reg(NRF_REG_RF_CH, 0x55);
-    if(nrf24_hw_read_reg(NRF_REG_RF_CH) != 0x55) return false;
-    nrf24_hw_write_reg(NRF_REG_RF_CH, 0x2A);
-    return nrf24_hw_read_reg(NRF_REG_RF_CH) == 0x2A;
+    /* Retry the round-trip: at scene enter a display frame is often mid-DMA
+     * on the shared bus, and a polling transfer issued then fails even with
+     * perfect wiring. A transient collision clears within milliseconds;
+     * genuinely missing hardware fails every attempt. */
+    for(int attempt = 0; attempt < 5; attempt++) {
+        nrf24_hw_write_reg(NRF_REG_CONFIG, NRF_CONFIG_PWR_UP);
+        esp_rom_delay_us(5000);
+        nrf24_hw_write_reg(NRF_REG_RF_CH, 0x55);
+        if(nrf24_hw_read_reg(NRF_REG_RF_CH) != 0x55) {
+            esp_rom_delay_us(10000);
+            continue;
+        }
+        nrf24_hw_write_reg(NRF_REG_RF_CH, 0x2A);
+        if(nrf24_hw_read_reg(NRF_REG_RF_CH) == 0x2A) return true;
+        esp_rom_delay_us(10000);
+    }
+    return false;
 }
 
 void nrf24_hw_power_down(void) {

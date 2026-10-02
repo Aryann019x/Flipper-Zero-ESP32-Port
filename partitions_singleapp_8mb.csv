@@ -1,0 +1,20 @@
+# Name,   Type, SubType, Offset,    Size,      Flags
+# ---------------------------------------------------------------------------
+# Single-app layout for 8 MB flash boards (e.g. ESP32-S3 N8R2 DIY builds).
+#
+#   factory = this ESP32 Flipper Zero port (the only app image, ~3.3 MB;
+#             slot is 0x5F0000 = ~6.1 MB, same size as the 16 MB OTA slots)
+#
+# No OTA slots: two ~3.3 MB app images + overhead don't fit in 8 MB alongside
+# NVS, so self-update (WiFi "Update" menu) is unavailable on this variant.
+# nvs keeps the exact offset/size of the other tables (0x9000 / 0x6000) so
+# settings survive switching layouts.
+#
+# Bootloader occupies 0x0..0x8000, the partition table lives at 0x8000
+# (CONFIG_PARTITION_TABLE_OFFSET); the first partition follows at 0x9000.
+# App partitions must be 64 KB aligned, so factory lands at 0x10000.
+# ---------------------------------------------------------------------------
+nvs,        data, nvs,       0x9000,    0x6000,
+phy_init,   data, phy,       0xf000,    0x1000,
+factory,    app,  factory,   0x10000,   0x5F0000,
+coredump,   data, coredump,  0x600000,  0x20000,

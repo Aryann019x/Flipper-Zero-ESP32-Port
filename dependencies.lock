@@ -1,4 +1,28 @@
 dependencies:
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.5.3
+  espressif/esp_lcd_ili9341:
+    component_hash: 840387ee0c90a473e43fdc75570f77c52f06423aa331d95479bde8b418c43547
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=5.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.1.0
   espressif/esp_tinyusb:
     component_hash: 6a50305bc61c7a361da8c0833642be824e92dacb0a6001719a832a4e96e471bf
     dependencies:
@@ -34,7 +58,7 @@ dependencies:
       type: service
     version: 1.12.0
   espressif/tinyusb:
-    component_hash: a72b7d67472914ab76309340fd50d578b31e310963d45ad0f81144bde3314752
+    component_hash: 16c8d774dab1f484d3e0c0f61105624d2424bbae864efd19818baf7b451b41e7
     dependencies:
     - name: idf
       require: private
@@ -48,15 +72,16 @@ dependencies:
     - esp32p4
     - esp32h4
     - esp32s31
-    version: 0.21.0~1
+    version: 0.21.0~2
   idf:
     source:
       type: idf
     version: 5.4.1
 direct_dependencies:
+- espressif/esp_lcd_ili9341
 - espressif/esp_tinyusb
 - espressif/led_strip
 - espressif/mdns
-manifest_hash: 77c58563ea2c91dbaa3c83a5f09a14b450ea3464052fa45c125cb3d05fc88c80
+manifest_hash: 13389900c881f41d23a4589a1462ea9deb54da37efd1ec760ad84accf446c503
 target: esp32s3
 version: 2.0.0

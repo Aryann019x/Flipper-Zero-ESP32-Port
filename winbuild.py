@@ -47,6 +47,15 @@ BOARDS = {
     "waveshare_c6_1.9":  ("waveshare_c6_1.9",      "esp32c6", "build_waveshare_c6"),
     "waveshare_c6_1.47": ("waveshare_c6_1.47",     "esp32c6", "build_waveshare_c6_1.47"),
     "thormini":          ("thormini",              "esp32s3", "build_thormini"),
+    "esp32s3_st7789_diy": ("esp32s3_st7789_diy",    "esp32s3", "build_s3_st7789_diy"),
+    "esp32s3_ili9341_8mb": ("esp32s3_ili9341_8mb",  "esp32s3", "build_s3_ili9341_8mb"),
+    "esp32s3_ili9341_16mb_quad": ("esp32s3_ili9341_16mb_quad", "esp32s3", "build_s3_ili9341_16mb_quad"),
+    "esp32s3_ili9341_bod": ("esp32s3_ili9341_bod",  "esp32s3", "build_s3_ili9341_bod"),
+    "esp32s3_st7789_8mb": ("esp32s3_st7789_8mb",    "esp32s3", "build_s3_st7789_8mb"),
+    "esp32s3_st7789_16mb_quad": ("esp32s3_st7789_16mb_quad", "esp32s3", "build_s3_st7789_16mb_quad"),
+    "esp32s3_ili9341_diy": ("esp32s3_ili9341_diy",  "esp32s3", "build_s3_ili9341_diy"),
+    "esp32_ili9341_diy": ("esp32_ili9341_diy",     "esp32",   "build_esp32_ili9341"),
+    "esp32_st7789_diy": ("esp32_st7789_diy",       "esp32",   "build_esp32_st7789_diy"),
 }
 
 REPO_ROOT = Path(__file__).resolve().parent

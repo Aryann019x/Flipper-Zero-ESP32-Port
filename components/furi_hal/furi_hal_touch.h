@@ -1,7 +1,8 @@
 /**
  * @file furi_hal_touch.h
- * Touch HAL API for CST816S capacitive touch controller
- * (Waveshare ESP32-C6-LCD-1.9)
+ * Touch HAL API. Back-end is chosen by the board header:
+ *   - CST816S / AXS5106L capacitive touch over I2C
+ *   - XPT2046 resistive touch over SPI (BOARD_TOUCH_XPT2046)
  */
 
 #pragma once
@@ -13,18 +14,17 @@
 extern "C" {
 #endif
 
-/** Initialize CST816S touch controller (I2C bus, reset, interrupt pin).
+/** Initialize the board's touch controller (I2C or SPI).
  *  Safe to call even if touch hardware is absent — will log warning and return. */
 void furi_hal_touch_init(void);
 
 /** Check if a finger is currently touching the screen.
- *  Reads CST816S registers via I2C.
  *  @return true if finger detected */
 bool furi_hal_touch_is_pressed(void);
 
-/** Read touch coordinates.
- *  @param[out] x  X coordinate (0-319 in landscape)
- *  @param[out] y  Y coordinate (0-169 in landscape) */
+/** Read touch coordinates in panel pixel space.
+ *  @param[out] x  X coordinate (0..H_RES-1)
+ *  @param[out] y  Y coordinate (0..V_RES-1) */
 void furi_hal_touch_get_xy(uint16_t* x, uint16_t* y);
 
 /** CST816S gesture IDs */
@@ -47,13 +47,28 @@ typedef struct {
     uint16_t y;
 } TouchData;
 
-/** Read all touch data in a single I2C transaction.
+/** Read all touch data in a single transaction.
  *  @param[out] data  Touch data struct to fill
- *  @return true if I2C read succeeded */
+ *  @return true if the read succeeded (finger_count is 0 when not touching) */
 bool furi_hal_touch_read(TouchData* data);
 
-/** Read gesture ID from CST816S.
- *  @return gesture id (0=None, 1=SlideUp, 2=SlideDown, 3=SlideLeft, 4=SlideRight, 5=SingleClick) */
+/** Non-blocking variant for the input poll: never waits on the shared SPI
+ *  bus, so a display frame in flight costs one skipped 4 ms poll instead of
+ *  a stalled input thread (which drops short light taps).
+ *  @param[out] data  Touch data struct to fill (untouched when busy)
+ *  @return 1 if pressed, 0 if released, -1 if the bus was busy (skip poll) */
+int furi_hal_touch_try_read(TouchData* data);
+
+/** Raw controller values (not pixels) of the last sample that passed the
+ *  press test. Zero until a press has been seen. Only meaningful on the
+ *  XPT2046 path; used for calibration and diagnostics.
+ *  @param[out] raw_x  Raw X ADC value (0..4095)
+ *  @param[out] raw_y  Raw Y ADC value (0..4095) */
+void furi_hal_touch_get_last_raw(uint16_t* raw_x, uint16_t* raw_y);
+
+/** Read a hardware gesture ID where supported.
+ *  @return gesture id (0=None, 1=SlideUp, 2=SlideDown, 3=SlideLeft, 4=SlideRight, 5=SingleClick).
+ *          Always 0 on controllers without a gesture engine (XPT2046/AXS5106L). */
 uint8_t furi_hal_touch_get_gesture(void);
 
 /** Set the thread ID that will receive interrupt flags on touch events.
