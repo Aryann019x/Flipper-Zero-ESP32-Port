@@ -1,6 +1,8 @@
 #include "loader.h"
 #include "loader_i.h"
 #include <applications.h>
+#include <furi_hal_rtc.h>
+#include <furi.h>
 #include <flipper_application/flipper_application.h>
 #include <flipper_application/api_hashtable/api_hashtable.h>
 #include <storage/storage.h>
@@ -123,6 +125,16 @@ void loader_show_menu(Loader* loader) {
     furi_message_queue_put(loader->queue, &message, FuriWaitForever);
 }
 
+void loader_defer_app_launch(Loader* loader, const char* name, const char* args) {
+    furi_check(loader);
+    furi_check(name);
+
+    free(loader->pending_name);
+    free(loader->pending_args);
+    loader->pending_name = strdup(name);
+    loader->pending_args = args ? strdup(args) : NULL;
+}
+
 void loader_show_settings(Loader* loader) {
     furi_check(loader);
 
@@ -161,6 +173,34 @@ static void loader_menu_closed_callback(void* context) {
     LoaderMessage message;
     message.type = LoaderMessageTypeMenuClosed;
     furi_message_queue_put(loader->queue, &message, FuriWaitForever);
+}
+
+static LoaderMessageLoaderStatusResult loader_do_start_by_name(
+    Loader* loader,
+    const char* name,
+    const char* args,
+    FuriString* error_message);
+
+/* Deferred app launch from the menu: the menu thread stashed the app name in
+ * pending_name and tore down all of its UI before exiting. By the time this
+ * runs the menu is fully freed, so the app starts with maximum free heap. */
+static void loader_launch_pending_app(Loader* loader) {
+    if(!loader->pending_name) return;
+    char* name = loader->pending_name;
+    char* args = loader->pending_args;
+    loader->pending_name = NULL;
+    loader->pending_args = NULL;
+    esp_rom_printf("[LDR] deferred launch '%s' free=%u\r\n", name,
+        (unsigned)memmgr_get_free_heap());
+    LoaderMessageLoaderStatusResult status;
+    FuriString* error_message = furi_string_alloc();
+    status = loader_do_start_by_name(loader, name, args, error_message);
+    if(status.value != LoaderStatusOk) {
+        FURI_LOG_E(TAG, "Deferred start error: %s", furi_string_get_cstr(error_message));
+    }
+    furi_string_free(error_message);
+    free(name);
+    free(args);
 }
 
 static void loader_applications_closed_callback(void* context) {
@@ -410,7 +450,9 @@ static LoaderMessageLoaderStatusResult loader_do_start_by_name(
     LoaderMessageLoaderStatusResult status;
     status.value = LoaderStatusOk;
 
-    esp_rom_printf("\r\n[LDR] start_by_name name='%s'\r\n", name ? name : "(null)");
+    esp_rom_printf("\r\n[LDR] start_by_name name='%s' free=%u min=%u maxblk=%u\r\n", name ? name : "(null)",
+        (unsigned)memmgr_get_free_heap(), (unsigned)memmgr_get_minimum_free_heap(),
+        (unsigned)memmgr_heap_get_max_free_block());
 
     if(name == NULL) return status;
 
@@ -425,6 +467,7 @@ static LoaderMessageLoaderStatusResult loader_do_start_by_name(
         }
 
         if(strcmp(name, LOADER_APPLICATIONS_NAME) == 0) {
+            esp_rom_printf("[LDR] applications_show free=%u\r\n", (unsigned)memmgr_get_free_heap());
             loader_do_applications_show(loader);
             break;
         }
@@ -490,10 +533,11 @@ static void loader_do_app_closed(Loader* loader) {
     } else {
         furi_thread_free(loader->app.thread);
     }
-    loader->app.thread = NULL;
-
-    FURI_LOG_I(
+    loader->app.thread = NULL;        FURI_LOG_I(
         TAG, "Application stopped. Free heap: %zu", memmgr_get_free_heap());
+
+    esp_rom_printf("[LDR] app_closed free=%u min=%u\r\n",
+        (unsigned)memmgr_get_free_heap(), (unsigned)memmgr_get_minimum_free_heap());
 
     LoaderEvent event;
     event.type = LoaderEventTypeApplicationStopped;
@@ -524,6 +568,16 @@ int32_t loader_srv(void* p) {
     furi_record_create(RECORD_LOADER, loader);
 
     FURI_LOG_I(TAG, "Loader service started");
+
+    /* Autorun app support (mirrors applications/services/loader): start the
+     * app configured via fam_config.py AUTORUN_APP right after the loader
+     * record exists, in normal boot mode only. Called via the loader's own
+     * public API so the request flows through the loader queue. */
+    if((furi_hal_rtc_get_boot_mode() == FuriHalRtcBootModeNormal) && FLIPPER_AUTORUN_APP_NAME &&
+       strlen(FLIPPER_AUTORUN_APP_NAME)) {
+        FURI_LOG_I(TAG, "Starting autorun app: %s", FLIPPER_AUTORUN_APP_NAME);
+        loader_start(loader, FLIPPER_AUTORUN_APP_NAME, NULL, NULL);
+    }
 
     LoaderMessage message;
     while(true) {
@@ -577,6 +631,9 @@ int32_t loader_srv(void* p) {
                 break;
             case LoaderMessageTypeMenuClosed:
                 loader_do_menu_closed(loader);
+                /* App picked from the menu? Start it now, with the menu's
+                 * memory freed (prevents OOM crash on no-PSRAM boards). */
+                loader_launch_pending_app(loader);
                 break;
             case LoaderMessageTypeApplicationsClosed:
                 loader_do_applications_closed(loader);

@@ -509,7 +509,15 @@ def main() -> int:
     parser.add_argument("--config", required=True)
     parser.add_argument("--registry-out", required=True)
     parser.add_argument("--cmake-out", required=True)
+    parser.add_argument("--board", default=None)
     args = parser.parse_args()
+
+    # Hermetic board selection: fam_config.py filters apps via
+    # os.environ["FLIPPER_BOARD"], which proved fragile through the
+    # idf.py/CMake configure chain (registry silently generated for the
+    # default board). An explicit --board always wins.
+    if args.board:
+        os.environ["FLIPPER_BOARD"] = args.board
 
     project_dir = Path(args.project_dir).resolve()
     config = load_config(Path(args.config))

@@ -95,13 +95,18 @@ bool ble_spam_hal_start(void) {
         return false;
     }
 
-    // Set TX power to maximum for all BLE power types
-#ifdef ESP_PWR_LVL_P21
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P21);
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P21);
-#else
+    // Set TX power to maximum for all BLE power types.
+    // The max level differs per target, but the esp_bt.h levels are enum
+    // members (not macros), so #ifdef can never detect them. Select on the
+    // target instead: C6/C2/H2 expose +20 dBm, everything else maxes at +9 dBm
+    // (classic ESP32 aliases P7 to P9, so P9 is correct there too).
+#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C2) || \
+    defined(CONFIG_IDF_TARGET_ESP32H2)
     esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P20);
     esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P20);
+#else
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P9);
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P9);
 #endif
 
     s_adv_configured = false;

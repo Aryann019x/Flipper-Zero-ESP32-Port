@@ -75,11 +75,29 @@ uint16_t furi_hal_display_get_fg_color(void);
 void furi_hal_display_set_bg_color(uint16_t color);
 uint16_t furi_hal_display_get_bg_color(void);
 
-/** Get native panel dimensions (post swap_xy). Intended for full-screen
- * takeover apps (e.g. game emulators) that bypass the 128x64 framebuffer.
+/** Get panel dimensions for the *current* rotation (post swap_xy). Intended for
+ * full-screen takeover apps (e.g. game emulators) that bypass the 128x64
+ * framebuffer.
  */
 uint16_t furi_hal_display_get_h_res(void);
 uint16_t furi_hal_display_get_v_res(void);
+
+/** Get the current screen rotation, 0..3 (0 = the board's own mounting).
+ * Even values are the board's native geometry, odd values are it rotated 90°,
+ * i.e. on a portrait module the odd values are landscape. */
+uint8_t furi_hal_display_get_rotation(void);
+
+/** Rotate the UI in 90° steps and persist the choice.
+ *
+ * Reconfigures the panel's MADCTL (swap/mirror), recomputes the aspect-fit
+ * geometry and clears the field. The rotation is stored, so the next boot comes
+ * up in the requested orientation. Rotation 1 and 3 put the UI in landscape on
+ * portrait panels (and vice versa). Safe to call while the GUI is running: the
+ * caller's next frame is drawn in the new orientation.
+ *
+ * @param      rotation  0..3; out-of-range values fall back to 0
+ */
+void furi_hal_display_set_rotation(uint8_t rotation);
 
 /** Get the underlying esp_lcd panel handle for direct full-screen drawing.
  *

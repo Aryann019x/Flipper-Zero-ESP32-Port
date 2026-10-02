@@ -26,6 +26,7 @@ set(FURI_HAL_SRCS
     "furi_hal_resources.c"
     "furi_hal_usb.c"
     "furi_hal_usb_cdc.c"
+    "furi_hal_usb_tinyusb_composite.c"
     "furi_hal_light.c"
     "furi_hal_vibro.c"
     "furi_hal_speaker.c"
@@ -59,10 +60,12 @@ set(FURI_HAL_REQUIRES
 )
 
 # HID backend: TinyUSB on SoCs with USB-OTG, stub elsewhere.
+# NOTE: furi_hal_usb_tinyusb_composite.c is in the common SRCS above on purpose:
+# it self-selects via #if CONFIG_IDF_TARGET_ESP32S3/S2 and provides no-op
+# fallbacks (composite_uninstall, serial_jtag_*) for all other targets.
 if(IDF_TARGET STREQUAL "esp32s3" OR IDF_TARGET STREQUAL "esp32s2")
     list(APPEND FURI_HAL_SRCS
         "furi_hal_usb_hid_tinyusb.c"
-        "furi_hal_usb_tinyusb_composite.c"
         "furi_hal_usb_msc.c"
     )
     list(APPEND FURI_HAL_REQUIRES espressif__esp_tinyusb)

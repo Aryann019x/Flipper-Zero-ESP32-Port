@@ -18,6 +18,7 @@
 #include <esp_attr.h>
 #include <furi.h>
 #include <btshim.h>
+#include "sdkconfig.h" /* CONFIG_IDF_TARGET_ESP32 (cache sizing for no-PSRAM target) */
 
 #define TAG "EvilPortal"
 #define DNS_PORT 53
@@ -32,7 +33,13 @@ static volatile bool s_dns_run = false;
 // Caching cuts upstream traffic ~70% in steady state because iOS repeats
 // queries (often 2-3x per domain across A/AAAA/HTTPS). Cap TTL to keep
 // fresh-enough answers; size 32 entries handles a typical iOS burst.
+// Classic ESP32 has no PSRAM (EXT_RAM_BSS_ATTR falls back to internal DRAM),
+// so shrink the cache there: 8 entries still cover steady-state repeats.
+#if CONFIG_IDF_TARGET_ESP32
+#define DNS_CACHE_SIZE 8
+#else
 #define DNS_CACHE_SIZE 32
+#endif
 #define DNS_CACHE_TTL_MS 30000
 typedef struct {
     char domain[96];

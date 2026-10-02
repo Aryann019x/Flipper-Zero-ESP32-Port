@@ -65,7 +65,9 @@ typedef enum {
 static struct {
     rmt_channel_handle_t channel;
     rmt_receive_config_t rx_config;
-    rmt_symbol_word_t symbols[IR_RMT_RX_MAX_SYMBOLS];
+    /* Heap-allocated on RX start (4 KB): a static buffer here eats .bss on
+     * every board, including ones without IR (e.g. C6, classic-ESP32 DIY). */
+    rmt_symbol_word_t* symbols;
     FuriHalInfraredRxCaptureCallback capture_callback;
     void* capture_context;
     FuriHalInfraredRxTimeoutCallback timeout_callback;
@@ -159,8 +161,12 @@ static bool IRAM_ATTR ir_rmt_rx_done_callback(rmt_channel_handle_t channel,
     }
 
     /* Re-start receiving for next burst */
-    if(ir_state == InfraredStateAsyncRx) {
-        rmt_receive(channel, ir_rx.symbols, sizeof(ir_rx.symbols), &ir_rx.rx_config);
+    if(ir_state == InfraredStateAsyncRx && ir_rx.symbols) {
+        rmt_receive(
+            channel,
+            ir_rx.symbols,
+            IR_RMT_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t),
+            &ir_rx.rx_config);
     }
 
     return false;
@@ -172,6 +178,11 @@ void furi_hal_infrared_async_rx_start(void) {
     FURI_LOG_E("IR", "Board has no IR support");
     return;
 #endif
+
+    /* RX symbol buffer from heap (not .bss — see struct comment). */
+    ir_rx.symbols = heap_caps_malloc(
+        IR_RMT_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t), MALLOC_CAP_DEFAULT);
+    furi_check(ir_rx.symbols);
 
     /* Configure RMT RX channel */
     rmt_rx_channel_config_t rx_chan_config = {
@@ -208,7 +219,11 @@ void furi_hal_infrared_async_rx_start(void) {
     ir_state = InfraredStateAsyncRx;
 
     /* Start receiving */
-    ESP_ERROR_CHECK(rmt_receive(ir_rx.channel, ir_rx.symbols, sizeof(ir_rx.symbols), &ir_rx.rx_config));
+    ESP_ERROR_CHECK(rmt_receive(
+        ir_rx.channel,
+        ir_rx.symbols,
+        IR_RMT_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t),
+        &ir_rx.rx_config));
 }
 
 void furi_hal_infrared_async_rx_stop(void) {
@@ -219,6 +234,9 @@ void furi_hal_infrared_async_rx_stop(void) {
     rmt_disable(ir_rx.channel);
     rmt_del_channel(ir_rx.channel);
     ir_rx.channel = NULL;
+
+    heap_caps_free(ir_rx.symbols);
+    ir_rx.symbols = NULL;
 
     /* Stop and delete timeout timer if active */
     if(ir_rx.timeout_timer) {

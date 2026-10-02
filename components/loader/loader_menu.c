@@ -172,10 +172,23 @@ typedef struct {
     LoaderMenuFapSlot faps[LOADER_MENU_MAX_FAPS];
 } LoaderMenuApp;
 
-static void loader_menu_start(const char* name) {
+static void loader_menu_start_with_args(LoaderMenuApp* app, const char* name, const char* args) {
+    /* Launch apps with the menu fully torn down: launching while this menu
+     * (8KB thread stack + ViewDispatcher + all views) is still allocated
+     * leaves ~11KB free heap on no-PSRAM boards and apps crash with
+     * StoreProhibited on a failed allocation. Sequence:
+     *   1. stash the app name on the loader (loader->pending_name)
+     *   2. stop our dispatcher -> this menu thread frees all its UI + exits
+     *   3. its exit posts MenuClosed -> loader frees the menu struct...
+     *   4. ...and then starts the stashed app with full heap available. */
     Loader* loader = furi_record_open(RECORD_LOADER);
-    loader_start_with_gui_error(loader, name, NULL);
+    loader_defer_app_launch(loader, name, args);
     furi_record_close(RECORD_LOADER);
+    view_dispatcher_stop(app->view_dispatcher);
+}
+
+static void loader_menu_start(LoaderMenuApp* app, const char* name) {
+    loader_menu_start_with_args(app, name, NULL);
 }
 
 static void loader_menu_switch_to_view(LoaderMenuApp* app, LoaderMenuView view) {
@@ -197,19 +210,19 @@ static void loader_menu_primary_callback(void* context, uint32_t index) {
 
     switch(entry->kind) {
     case LoaderMenuEntryKindApplications:
-        loader_menu_start(LOADER_APPLICATIONS_NAME);
+        loader_menu_start(app, LOADER_APPLICATIONS_NAME);
         break;
     case LoaderMenuEntryKindInternal:
-        loader_menu_start(FLIPPER_APPS[entry->index].name);
+        loader_menu_start(app, FLIPPER_APPS[entry->index].name);
         break;
     case LoaderMenuEntryKindExternal:
-        loader_menu_start(FLIPPER_EXTERNAL_APPS[entry->index].path);
+        loader_menu_start(app, FLIPPER_EXTERNAL_APPS[entry->index].path);
         break;
     case LoaderMenuEntryKindInternalAdded:
-        loader_menu_start(FLIPPER_SYSTEM_APPS[entry->index].name);
+        loader_menu_start(app, FLIPPER_SYSTEM_APPS[entry->index].name);
         break;
     case LoaderMenuEntryKindFap:
-        loader_menu_start(furi_string_get_cstr(app->faps[entry->index].path));
+        loader_menu_start(app, furi_string_get_cstr(app->faps[entry->index].path));
         break;
     case LoaderMenuEntryKindSettings:
         loader_menu_switch_to_view(app, LoaderMenuViewSettings);
@@ -399,23 +412,20 @@ static void loader_menu_build_interface(LoaderMenuApp* app);
 
 static void
     loader_menu_settings_menu_callback(void* context, InputType input_type, uint32_t index) {
-    UNUSED(context);
+    LoaderMenuApp* app = context;
     if(input_type == InputTypeShort) {
-        loader_menu_start((const char*)index);
+        loader_menu_start(app, (const char*)index);
     } else if(input_type == InputTypeLong) {
         archive_favorites_handle_setting_pin_unpin((const char*)index, NULL);
     }
 }
 
 static void loader_menu_update_fw_callback(void* context, uint32_t index) {
-    UNUSED(context);
     UNUSED(index);
     /* Firmware-/SD-Update lebt in der WiFi-App; dort in den kombinierten
-     * Update-Flow springen (Launch-Arg "update"). Gleiches Muster wie der
-     * Web-Filesystem-Start aus dem Desktop-Lock-Menü. */
-    Loader* loader = furi_record_open(RECORD_LOADER);
-    loader_start_detached_with_gui_error(loader, "wlan", "update");
-    furi_record_close(RECORD_LOADER);
+     * Update-Flow springen (Launch-Arg "update"). Läuft jetzt über denselben
+     * deferred-launch Pfad wie alle anderen Apps (Menu erst freigeben). */
+    loader_menu_start_with_args((LoaderMenuApp*)context, "wlan", "update");
 }
 
 static void loader_menu_settings_interface_callback(void* context, uint32_t index) {
@@ -475,6 +485,13 @@ static void loader_menu_interface_go_main(void* context, uint32_t index) {
     loader_menu_switch_to_view(app, LoaderMenuViewInterfaceMain);
 }
 
+/* "Screen Rotation" — launch the stock interface_settings app (it owns the
+ * Screen Rotation option; the menu's Interface tabs don't duplicate it). */
+static void loader_menu_interface_go_rotation(void* context, uint32_t index) {
+    UNUSED(index);
+    loader_menu_start((LoaderMenuApp*)context, "interface_settings");
+}
+
 static void loader_menu_interface_go_lock(void* context, uint32_t index) {
     UNUSED(index);
     LoaderMenuApp* app = context;
@@ -493,6 +510,7 @@ static void loader_menu_build_interface(LoaderMenuApp* app) {
     submenu_add_item(app->interface_menu, "Main Menu", 0, loader_menu_interface_go_main, app);
     submenu_add_item(app->interface_menu, "Lock Screen", 1, loader_menu_interface_go_lock, app);
     submenu_add_item(app->interface_menu, "Status Bar", 2, loader_menu_interface_go_status, app);
+    submenu_add_item(app->interface_menu, "Screen Rotation", 3, loader_menu_interface_go_rotation, app);
 }
 
 /* ---------------------------------------------------------------- */

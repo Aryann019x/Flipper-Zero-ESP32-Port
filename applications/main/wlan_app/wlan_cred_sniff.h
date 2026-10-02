@@ -2,13 +2,19 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "sdkconfig.h" /* CONFIG_IDF_TARGET_ESP32 (ring sizing for no-PSRAM target) */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // Anzahl der Slots im Lock-freien Cred-Ring. Fixed size, intern alloziert.
+// Classic ESP32 hat kein PSRAM: halber Ring (16 statt 32), spart ~6 KB DRAM.
+#if CONFIG_IDF_TARGET_ESP32
+#define WLAN_CRED_RING_SIZE 16
+#else
 #define WLAN_CRED_RING_SIZE 32
+#endif
 // Maximale Länge der Text-Felder (host / user / secret), inkl. NUL.
 #define WLAN_CRED_STR_MAX 64
 #define WLAN_CRED_PROTO_MAX 8

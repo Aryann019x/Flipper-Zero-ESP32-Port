@@ -15,6 +15,15 @@ typedef FRESULT SDError;
 
 #define TAG "StorageExt"
 
+/* Pause between SD mount attempts. Boards with an optional/absent card slot
+ * fail every attempt anyway, so they back off quickly instead of adding ~3s of
+ * black-screen time to the boot. */
+#if defined(BOARD_SD_OPTIONAL) && BOARD_SD_OPTIONAL
+#define SD_MOUNT_RETRY_DELAY_MS 250U
+#else
+#define SD_MOUNT_RETRY_DELAY_MS 1000U
+#endif
+
 /********************* Definitions ********************/
 
 typedef struct {
@@ -84,10 +93,13 @@ static bool sd_mount_card_internal(StorageData* storage, bool notify) {
         }
 
         if(!result) {
-            furi_delay_ms(1000);
-            FURI_LOG_E(
-                TAG, "init cycle %d, error: %s", counter, storage_data_status_text(storage));
             counter--;
+            FURI_LOG_E(
+                TAG, "init cycle %d, error: %s", counter + 1, storage_data_status_text(storage));
+            /* Only wait when another attempt is actually going to happen. */
+            if(counter > 0) {
+                furi_delay_ms(SD_MOUNT_RETRY_DELAY_MS);
+            }
         }
     }
 

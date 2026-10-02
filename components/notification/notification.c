@@ -761,7 +761,9 @@ static NotificationApp* notification_app_alloc(void) {
     /* Push the loaded UI color to the LCD render pipeline. */
     notification_apply_ui_color(app);
 
-    app->display.value[LayerInternal] = 0x00;
+    /* Boot splash is already lit at 255 by furi_hal_display_init — reflect
+     * that so the first reset doesn't blank the screen to black. */
+    app->display.value[LayerInternal] = 0xFF;
     app->display.value[LayerNotification] = 0x00;
     app->display.index = LayerInternal;
     app->display_led_lock = false;
@@ -784,12 +786,20 @@ int32_t notification_srv(void* p) {
 
     NotificationApp* app = notification_app_alloc();
 
-    notification_apply_internal_display_layer(app, 0x00);
+    /* Keep the boot splash visible: the panel is already lit at 255 from
+     * display init. The old code forced 0x00 here (backlight off + panel
+     * sleep) then blocked up to 5s waiting for SD — that's the "yellow flash
+     * then long blank" users see on SD-less boards. Re-assert ON instead. */
+    notification_apply_internal_display_layer(app, 0xFF);
 
     furi_record_create(RECORD_NOTIFICATION, app);
 
+    /* Short wait for storage: 2s max (was 5s). The message loop below hasn't
+     * started yet, so a long wait here = dead screen time even with the
+     * splash kept on. Storage without SD reports mount-error quickly; no
+     * need to stall boot for the full 5s. */
     Storage* storage = furi_record_open(RECORD_STORAGE);
-    for(int i = 0; i < 50 && storage_sd_status(storage) != FSE_OK; i++) {
+    for(int i = 0; i < 20 && storage_sd_status(storage) != FSE_OK; i++) {
         furi_delay_ms(100);
     }
     furi_record_close(RECORD_STORAGE);

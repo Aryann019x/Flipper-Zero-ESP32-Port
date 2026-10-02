@@ -4,9 +4,13 @@
 
 #include <stddef.h>
 
-/* No-op HID backend for SoCs without USB-OTG (e.g. ESP32-C6).
+/* No-op HID backend for SoCs without USB-OTG (e.g. ESP32-C6, classic ESP32).
  * Tracks only the connection-state callback so BLE HID can coexist
- * while the BadUSB USB interface remains unsupported. */
+ * while the BadUSB USB interface remains unsupported.
+ *
+ * NOTE: the TinyUSB composite / USB-Serial-JTAG no-op fallbacks live in
+ * furi_hal_usb_tinyusb_composite.c (#else branch) — that file must be
+ * compiled on ALL targets (see CMakeLists.txt). Do not duplicate them here. */
 
 static HidStateCallback s_user_cb = NULL;
 static void* s_user_ctx = NULL;

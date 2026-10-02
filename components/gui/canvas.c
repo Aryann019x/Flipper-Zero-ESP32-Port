@@ -32,9 +32,13 @@ Canvas* canvas_init(void) {
     // Wake up display
     u8g2_SetPowerSave(&canvas->fb, 0);
 
-    // Clear buffer and send to device
+    /* Clear the RAM buffer but do NOT commit: the LCD still shows the boot
+     * splash painted by furi_hal_display_init, and the first commit here
+     * would wipe it to plain orange seconds before the desktop is ready —
+     * that's the "logo flash then blank" gap. Leaving the splash up until
+     * the first real gui_redraw keeps the screen alive through storage /
+     * desktop startup. */
     canvas_clear(canvas);
-    canvas_commit(canvas);
 
     return canvas;
 }

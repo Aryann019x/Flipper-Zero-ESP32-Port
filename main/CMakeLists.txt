@@ -20,6 +20,7 @@ execute_process(
         --config "${ESP32_DIR}/fam_config.py"
         --registry-out "${ESP32_FAM_REGISTRY_C}"
         --cmake-out "${ESP32_FAM_PORTED_CMAKE}"
+        --board "${FLIPPER_BOARD}"
     RESULT_VARIABLE ESP32_FAM_GENERATE_RESULT
     OUTPUT_VARIABLE ESP32_FAM_GENERATE_STDOUT
     ERROR_VARIABLE ESP32_FAM_GENERATE_STDERR

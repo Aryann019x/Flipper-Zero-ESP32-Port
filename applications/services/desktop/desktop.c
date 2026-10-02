@@ -445,10 +445,20 @@ static void desktop_apply_settings(Desktop* desktop) {
 static void desktop_init_settings(Desktop* desktop) {
     furi_pubsub_subscribe(storage_get_pubsub(desktop->storage), desktop_storage_callback, desktop);
 
+#if !(defined(BOARD_SD_OPTIONAL) && BOARD_SD_OPTIONAL)
     if(storage_sd_status(desktop->storage) != FSE_OK) {
         FURI_LOG_D(TAG, "SD Card not ready, skipping settings");
         return;
     }
+#else
+    /* Board without a (working) SD slot: the settings live in the internal
+     * filesystem, so load them anyway. Skipping them left every favourite slot
+     * empty, and the desktop then launched a default app on its own as soon as
+     * any stray Ok/arrow event arrived. */
+    if(storage_sd_status(desktop->storage) != FSE_OK) {
+        FURI_LOG_I(TAG, "No SD card: loading desktop settings from internal storage");
+    }
+#endif
 
     desktop_settings_load(&desktop->settings);
     desktop_apply_settings(desktop);

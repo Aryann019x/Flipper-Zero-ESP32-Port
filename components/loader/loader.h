@@ -45,6 +45,10 @@ bool loader_is_locked(Loader* instance);
 void loader_show_menu(Loader* instance);
 /** Open the loader menu directly on the Settings submenu. */
 void loader_show_settings(Loader* instance);
+/** Stash an app to be started after the loader menu is fully torn down
+ * (posted with the MenuClosed message). Used by loader_menu so apps launch
+ * without the menu's memory still allocated (OOM crash on no-PSRAM boards). */
+void loader_defer_app_launch(Loader* instance, const char* name, const char* args);
 FuriPubSub* loader_get_pubsub(Loader* instance);
 
 typedef enum {

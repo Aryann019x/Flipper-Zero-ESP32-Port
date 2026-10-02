@@ -7,8 +7,30 @@
 #include <desktop/desktop.h>
 #include <desktop/desktop_settings.h>
 #include <power/power_service/power.h>
+#include <boards/board.h>
+#include <furi_hal_display.h>
 
 #define INTERFACE_SETTINGS_VIEW_LIST (0)
+
+/* Screen rotation: 0 is the panel's own mounting as declared by the board
+ * header, 1 and 3 are it turned 90°/270° (so on a portrait module those two are
+ * landscape), 2 is upside down. Label them by what they actually do here. */
+#define SCREEN_ROTATION_COUNT 4
+
+#if BOARD_LCD_H_RES > BOARD_LCD_V_RES
+static const char* const screen_rotation_text[SCREEN_ROTATION_COUNT] = {
+    "Landscape", "Portrait", "Landscape 180", "Portrait 180"};
+#else
+static const char* const screen_rotation_text[SCREEN_ROTATION_COUNT] = {
+    "Portrait", "Landscape", "Portrait 180", "Landscape 180"};
+#endif
+
+static void screen_rotation_changed(VariableItem* item) {
+    uint8_t index = variable_item_get_current_value_index(item);
+    variable_item_set_current_value_text(item, screen_rotation_text[index]);
+    /* Applies MADCTL + re-fits the UI geometry live and persists the choice. */
+    furi_hal_display_set_rotation(index);
+}
 
 #define BATTERY_VIEW_COUNT 5
 #define CLOCK_ENABLE_COUNT 2
@@ -115,6 +137,20 @@ static InterfaceSettingsApp* interface_settings_alloc(void) {
     }
     variable_item_set_current_value_index(item, value_index);
     variable_item_set_current_value_text(item, lock_screen_style_text[value_index]);
+
+    // Screen rotation: portrait / landscape (+ their 180° variants)
+    item = variable_item_list_add(
+        app->variable_item_list,
+        "Screen Rotation",
+        SCREEN_ROTATION_COUNT,
+        screen_rotation_changed,
+        app);
+    value_index = furi_hal_display_get_rotation();
+    if(value_index >= SCREEN_ROTATION_COUNT) {
+        value_index = 0;
+    }
+    variable_item_set_current_value_index(item, value_index);
+    variable_item_set_current_value_text(item, screen_rotation_text[value_index]);
 
     DesktopSettings* settings = malloc(sizeof(DesktopSettings));
     desktop_settings_load(settings);

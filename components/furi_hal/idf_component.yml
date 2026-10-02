@@ -9,3 +9,5 @@ dependencies:
     version: "^3.0.0"
     rules:
       - if: "target in [esp32, esp32s2, esp32s3, esp32c3, esp32c6]"
+  espressif/esp_lcd_ili9341:
+    version: "^2.0.0"

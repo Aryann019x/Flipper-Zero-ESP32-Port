@@ -8,6 +8,7 @@
 #include <furi.h>
 #include <furi_hal_rtc.h>
 #include <furi_hal_light.h>
+#include <furi_hal_display.h>
 #include <notification/notification_app.h>
 #include <notification/notification_messages.h>
 #include <gui/modules/variable_item_list.h>
@@ -44,6 +45,21 @@ static const NotificationSequence sequence_note_c = {
     &message_sound_off,
     NULL,
 };
+
+/* Screen rotation — same 4 steps as the Interface app; lives here too so
+ * users can find it next to the other display settings. */
+#define SCREEN_ROTATION_COUNT 4
+static const char* const screen_rotation_text[SCREEN_ROTATION_COUNT] = {
+    "0°", "90°", "180°", "270°"};
+
+static void screen_rotation_changed(VariableItem* item) {
+    NotificationAppSettings* app = variable_item_get_context(item);
+    UNUSED(app);
+    uint8_t index = variable_item_get_current_value_index(item);
+    variable_item_set_current_value_text(item, screen_rotation_text[index]);
+    /* Applies MADCTL + re-fits the UI geometry live and persists the choice. */
+    furi_hal_display_set_rotation(index);
+}
 
 #define BACKLIGHT_COUNT 17
 const char* const backlight_text[BACKLIGHT_COUNT] = {
@@ -463,6 +479,17 @@ static NotificationAppSettings* alloc_settings(void) {
         app->notification->settings.display_brightness, backlight_value, BACKLIGHT_COUNT);
     variable_item_set_current_value_index(item, value_index);
     variable_item_set_current_value_text(item, backlight_text[value_index]);
+
+    /* Screen Rotation (0°/90°/180°/270°) — applies live, survives reboot */
+    item = variable_item_list_add(
+        app->variable_item_list, "Screen Rotation", SCREEN_ROTATION_COUNT,
+        screen_rotation_changed, app);
+    value_index = furi_hal_display_get_rotation();
+    if(value_index >= SCREEN_ROTATION_COUNT) {
+        value_index = 0;
+    }
+    variable_item_set_current_value_index(item, value_index);
+    variable_item_set_current_value_text(item, screen_rotation_text[value_index]);
 
     /* UI Background tint — fills the field around drawn UI elements
      * (default Orange). Presets end with "Spectrum" (HSV cycle), then a

@@ -294,8 +294,10 @@ static void saved_struct_nvs_write_task(void* p) {
 
     size_t blob_size = sizeof(header) + ctx->size;
     /* Blob MUSS internes DRAM sein — er wird von nvs_set_blob während des
-     * Flash-Writes (Cache aus) gelesen. */
-    uint8_t* blob = heap_caps_malloc(blob_size, MALLOC_CAP_INTERNAL);
+     * Flash-Writes (Cache aus) gelesen. 8BIT (kein EXEC): auf manchen Targets
+     * liefert INTERNAL auch IRAM-gemappte Bloecke, aus denen ROM-Code
+     * (crc32) auf Classic-ESP32 nicht lesen kann -> LoadStoreError. */
+    uint8_t* blob = heap_caps_malloc(blob_size, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
     bool result = false;
     if(blob) {
         memcpy(blob, &header, sizeof(header));

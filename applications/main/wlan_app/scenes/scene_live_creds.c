@@ -11,6 +11,7 @@
 // Inject-Code, Store-Cred) kommen aus app->mitm_*, gesetzt in scene_mitm_menu.
 
 #include <storage/storage.h>
+#include "sdkconfig.h" /* CONFIG_IDF_TARGET_ESP32 (buffer sizing for no-PSRAM target) */
 #include <furi_hal_rtc.h>
 #include <datetime/datetime.h>
 #include <stdio.h>
@@ -21,7 +22,12 @@
 // einzige async-TX-Queue; zu viele saturieren das und das Opfer verliert Pakete.
 #define LC_AUTO_MONITOR_MAX 4
 
+/* Classic ESP32: halber Drain-Puffer (spart ~1,5 KB DRAM). */
+#if CONFIG_IDF_TARGET_ESP32
+#define LC_SCRATCH 4
+#else
 #define LC_SCRATCH 8
+#endif
 
 static Storage* s_lc_storage = NULL;
 static File* s_lc_file = NULL;

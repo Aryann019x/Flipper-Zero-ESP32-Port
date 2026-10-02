@@ -116,7 +116,11 @@ void furi_hal_light_init(void) {
         .timer_sel = BACKLIGHT_LEDC_TIMER,
         .intr_type = LEDC_INTR_DISABLE,
         .gpio_num = gpio_lcd_bl.pin,
-        .duty = furi_hal_light_backlight_duty_from_value(255),
+        /* Start dark. The display HAL lights the backlight once the panel is
+         * configured and cleared, so the user never sees power-on GRAM junk
+         * being wiped off the screen during boot; the notification service then
+         * applies the saved brightness. */
+        .duty = furi_hal_light_backlight_duty_from_value(0),
         .hpoint = 0,
     };
     ESP_ERROR_CHECK(ledc_channel_config(&channel_conf));
@@ -125,7 +129,13 @@ void furi_hal_light_init(void) {
 }
     
 #ifdef BOARD_PIN_WS2812_DATA
-    furi_hal_light_ws2812_init();
+    /* Only bring up RMT when the board actually carries a ring. On boards that
+     * leave BOARD_PIN_WS2812_DATA at the UINT16_MAX sentinel and
+     * BOARD_WS2812_LED_COUNT at 0 there is nothing to drive, and the attempt
+     * fails with "invalid GPIO number" noise on every boot. */
+    if(BOARD_WS2812_LED_COUNT > 0) {
+        furi_hal_light_ws2812_init();
+    }
 #endif
 }
 

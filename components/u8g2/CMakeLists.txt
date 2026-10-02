@@ -4,7 +4,10 @@ idf_component_register(
         "u8g2_box.c"
         "u8g2_buffer.c"
         "u8g2_circle.c"
-        "u8g2_d_memory.c"
+        # Minimal allocator (only u8g2_m_16_8_f, 1 KB) instead of the full
+        # upstream u8g2_d_memory.c (~132 KB dead .bss: classic ESP32 overflows
+        # dram0_0_seg with it). See u8g2_d_memory_flipper.c.
+        "u8g2_d_memory_flipper.c"
         "u8g2_font.c"
         "u8g2_fonts.c"
         "u8g2_glue.c"

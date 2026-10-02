@@ -6,6 +6,7 @@
 #include <power/power_service/power.h>
 #include <storage/storage.h>
 #include <assets_icons.h>
+#include BOARD_INCLUDE
 
 #include "views/bubble_animation_view.h"
 #include "views/one_shot_animation_view.h"
@@ -235,11 +236,18 @@ static bool animation_manager_check_blocking(AnimationManager* animation_manager
     FS_Error sd_status = storage_sd_status(storage);
 
     if(sd_status == FSE_INTERNAL) {
+#if defined(BOARD_SD_OPTIONAL) && BOARD_SD_OPTIONAL
+        /* Boards with no SD slot/socket: a card will never show up, so don't
+         * block the UI on the "bad SD" prompt — go straight to the desktop.
+         * (Mark it as shown so nothing else re-triggers it.) */
+        animation_manager->blocking_shown_sd_bad = true;
+#else
         if(!animation_manager->blocking_shown_sd_bad) {
             blocking_animation = animation_storage_find_animation(BAD_SD_ANIMATION_NAME);
             furi_assert(blocking_animation);
             animation_manager->blocking_shown_sd_bad = true;
         }
+#endif
     } else if(sd_status == FSE_NOT_READY) {
         animation_manager->blocking_shown_sd_bad = false;
         animation_manager->blocking_shown_sd_ok = false;
@@ -374,11 +382,18 @@ static bool animation_manager_is_valid_idle_animation(
         result = !battery_is_well;
     }
     if(!strcmp(info->name, NO_SD_ANIMATION_NAME)) {
+#if defined(BOARD_SD_OPTIONAL) && BOARD_SD_OPTIONAL
+        /* Board with no (or an optional) SD slot: a card is never going to
+         * appear, so never pick the "Need an SD card" animation — it would
+         * cover the desktop and look like a stuck prompt. */
+        result = false;
+#else
         Storage* storage = furi_record_open(RECORD_STORAGE);
         FS_Error sd_status = storage_sd_status(storage);
         furi_record_close(RECORD_STORAGE);
 
         result = (sd_status == FSE_NOT_READY);
+#endif
     }
     if((stats->butthurt < info->min_butthurt) || (stats->butthurt > info->max_butthurt)) {
         result = false;

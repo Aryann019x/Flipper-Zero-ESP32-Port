@@ -32,9 +32,9 @@ Canvas* canvas_init(void) {
     // Wake up display
     u8g2_SetPowerSave(&canvas->fb, 0);
 
-    // Clear buffer and send to device
+    /* Clear the RAM buffer but do NOT commit: keeps any boot splash on the
+     * panel until the first real gui_redraw (see components/gui/canvas.c). */
     canvas_clear(canvas);
-    canvas_commit(canvas);
 
     return canvas;
 }
