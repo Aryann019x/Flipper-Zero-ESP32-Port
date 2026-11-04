@@ -19,14 +19,7 @@ declare -A TARGETS=(
     ["waveshare_c6_1.47"]="esp32c6"
     ["t_embed"]="esp32s3"
     ["esp32s3_st7789_diy"]="esp32s3"
-    ["esp32s3_ili9341_8mb"]="esp32s3"
-    ["esp32s3_ili9341_16mb_quad"]="esp32s3"
-    ["esp32s3_ili9341_bod"]="esp32s3"
-    ["esp32s3_st7789_8mb"]="esp32s3"
-    ["esp32s3_st7789_16mb_quad"]="esp32s3"
-    ["esp32s3_ili9341_diy"]="esp32s3"
     ["esp32_ili9341_diy"]="esp32"
-    ["esp32_st7789_diy"]="esp32"
 )
 declare -A NAMES=(
     ["esp32s3"]="esp32s3_generic"
@@ -35,14 +28,7 @@ declare -A NAMES=(
     ["waveshare_c6_1.47"]="waveshare_c6_1.47"
     ["t_embed"]="lilygo_t_embed_cc1101"
     ["esp32s3_st7789_diy"]="esp32s3_st7789_diy"
-    ["esp32s3_ili9341_8mb"]="esp32s3_ili9341_8mb"
-    ["esp32s3_ili9341_16mb_quad"]="esp32s3_ili9341_16mb_quad"
-    ["esp32s3_ili9341_bod"]="esp32s3_ili9341_bod"
-    ["esp32s3_st7789_8mb"]="esp32s3_st7789_8mb"
-    ["esp32s3_st7789_16mb_quad"]="esp32s3_st7789_16mb_quad"
-    ["esp32s3_ili9341_diy"]="esp32s3_ili9341_diy"
     ["esp32_ili9341_diy"]="esp32_ili9341_diy"
-    ["esp32_st7789_diy"]="esp32_st7789_diy"
 )
 declare -A DIRS=(
     ["esp32s3"]="build_s3"
@@ -51,14 +37,7 @@ declare -A DIRS=(
     ["waveshare_c6_1.47"]="build_waveshare_c6_1.47"
     ["t_embed"]="build_t_embed"
     ["esp32s3_st7789_diy"]="build_s3_st7789_diy"
-    ["esp32s3_ili9341_8mb"]="build_s3_ili9341_8mb"
-    ["esp32s3_ili9341_16mb_quad"]="build_s3_ili9341_16mb_quad"
-    ["esp32s3_ili9341_bod"]="build_s3_ili9341_bod"
-    ["esp32s3_st7789_8mb"]="build_s3_st7789_8mb"
-    ["esp32s3_st7789_16mb_quad"]="build_s3_st7789_16mb_quad"
-    ["esp32s3_ili9341_diy"]="build_s3_ili9341_diy"
     ["esp32_ili9341_diy"]="build_esp32_ili9341"
-    ["esp32_st7789_diy"]="build_esp32_st7789_diy"
 )
 
 usage() {
