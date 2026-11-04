@@ -33,6 +33,17 @@
 
 #define PN532_I2C_ADDR          0x24
 
+#if defined(BOARD_PIN_NFC_IRQ) && BOARD_PIN_NFC_IRQ != UINT16_MAX
+#define PN532_HAS_IRQ 1
+#else
+#define PN532_HAS_IRQ 0
+#endif
+#if defined(BOARD_PIN_NFC_RST) && BOARD_PIN_NFC_RST != UINT16_MAX
+#define PN532_HAS_RST 1
+#else
+#define PN532_HAS_RST 0
+#endif
+
 #define PN532_PREAMBLE          0x00
 #define PN532_STARTCODE1        0x00
 #define PN532_STARTCODE2        0xFF
@@ -202,19 +213,35 @@ static esp_err_t pn532_i2c_init(void) {
 
     esp_err_t err = i2c_driver_install(BOARD_NFC_I2C_PORT, conf.mode, 0, 0, 0);
     if(err == ESP_OK) {
-        /* Fresh install — configure pins */
-        i2c_param_config(BOARD_NFC_I2C_PORT, &conf);
-    } else {
-        /* Already installed (by power or touch) — reuse as-is */
-        FURI_LOG_I(TAG, "I2C bus %d already initialized, reusing", BOARD_NFC_I2C_PORT);
-        err = ESP_OK;
+        /* Fresh install — configure pins. Remove the driver if setup fails. */
+        err = i2c_param_config(BOARD_NFC_I2C_PORT, &conf);
+        if(err != ESP_OK) i2c_driver_delete(BOARD_NFC_I2C_PORT);
+        return err;
     }
-    return err;
+    if(err != ESP_ERR_INVALID_STATE) {
+        FURI_LOG_E(TAG, "I2C driver install failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    /* The power service creates this bus on QWIIC pins before NFC init.
+     * Reuse only when both pin mapping and frequency are the same. */
+#if defined(BOARD_PIN_QWIIC_SDA) && defined(BOARD_PIN_QWIIC_SCL)
+    if(BOARD_NFC_I2C_PORT != I2C_NUM_0 || BOARD_PIN_NFC_SDA != BOARD_PIN_QWIIC_SDA ||
+       BOARD_PIN_NFC_SCL != BOARD_PIN_QWIIC_SCL) {
+        FURI_LOG_E(TAG, "Existing I2C bus does not match NFC pins");
+        return ESP_ERR_INVALID_STATE;
+    }
+    FURI_LOG_I(TAG, "Reusing Qwiic I2C bus %d for PN532", BOARD_NFC_I2C_PORT);
+    return ESP_OK;
+#else
+    FURI_LOG_E(TAG, "I2C bus already initialized with unknown pin mapping");
+    return ESP_ERR_INVALID_STATE;
+#endif
 }
 
-/** Wait for PN532 ready: IRQ pin LOW or I2C RDY byte polling */
+/** Wait for PN532 ready: IRQ pin LOW when wired, else poll the I2C RDY byte. */
 static bool pn532_wait_ready(uint32_t timeout_ms) {
-#ifdef BOARD_PIN_NFC_IRQ
+#if PN532_HAS_IRQ
     uint32_t start = furi_get_tick();
     while((furi_get_tick() - start) < timeout_ms) {
         if(gpio_get_level(BOARD_PIN_NFC_IRQ) == 0) return true;
@@ -367,8 +394,8 @@ FuriHalNfcError furi_hal_nfc_init(void) {
     esp_timer_create(&fwt_args, &fwt_timer);
     esp_timer_create(&btx_args, &block_tx_timer);
 
-    /* Configure IRQ pin */
-#ifdef BOARD_PIN_NFC_IRQ
+    /* Configure IRQ pin only when physically wired. UINT16_MAX is a sentinel. */
+#if PN532_HAS_IRQ
     gpio_config_t irq_conf = {
         .pin_bit_mask = (1ULL << BOARD_PIN_NFC_IRQ),
         .mode = GPIO_MODE_INPUT,
@@ -377,8 +404,8 @@ FuriHalNfcError furi_hal_nfc_init(void) {
     gpio_config(&irq_conf);
 #endif
 
-    /* Ensure RST is HIGH (PN532 powered from board power-on) */
-#ifdef BOARD_PIN_NFC_RST
+    /* Ensure RST is HIGH only when a reset GPIO is connected. */
+#if PN532_HAS_RST
     gpio_config_t rst_conf = {
         .pin_bit_mask = (1ULL << BOARD_PIN_NFC_RST),
         .mode = GPIO_MODE_OUTPUT,
@@ -408,9 +435,9 @@ FuriHalNfcError furi_hal_nfc_init(void) {
 
     FURI_LOG_I(TAG, "PN532 IC=0x%02X FW=%d.%d Support=0x%02X", resp[0], resp[1], resp[2], resp[3]);
 
-    /* SAM Configuration: normal mode, timeout=0x14 (1s), use IRQ pin
-     * (matches Adafruit_PN532::SAMConfig) */
-    uint8_t sam_cmd[] = {PN532_CMD_SAMCONFIGURATION, 0x01, 0x14, 0x01};
+    /* SAM Configuration: normal mode, timeout=0x14 (1s). The final byte
+     * enables PN532 IRQ output; use it only when the board wires IRQ. */
+    uint8_t sam_cmd[] = {PN532_CMD_SAMCONFIGURATION, 0x01, 0x14, PN532_HAS_IRQ ? 0x01 : 0x00};
     nfc_err = pn532_send_command(sam_cmd, sizeof(sam_cmd), NULL, NULL, 1000);
     if(nfc_err != FuriHalNfcErrorNone) {
         FURI_LOG_E(TAG, "SAM config failed");

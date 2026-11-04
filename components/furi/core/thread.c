@@ -204,20 +204,16 @@ void furi_thread_scrub(void) {
     }
 }
 
-/* Historically task stacks HAD to live in internal RAM: an NVS/flash write
-   suspends the whole cache (flash *and* PSRAM), so a stack spill from a
-   PSRAM-resident stack in that window faulted → DoubleException → TG1WDT reset.
-   EXPERIMENT: with CONFIG_SPI_FLASH_AUTO_SUSPEND enabled the flash write is
-   suspended on a cache miss instead of blanking the cache, which should make
-   PSRAM stacks safe even across flash writes. We therefore prefer PSRAM to free
-   the very scarce internal DRAM, falling back to internal if PSRAM is full.
-   Revert this (internal-first) if flash-write crashes reappear. */
+/* PSRAM stacks are opt-in: every flash/cache-disabled path must remain safe
+   for each task before a board enables external stacks. */
 static StackType_t* furi_thread_alloc_stack(const char* name, uint32_t stack_size) {
-    StackType_t* buffer = heap_caps_malloc(stack_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    UNUSED(name);
+    StackType_t* buffer = NULL;
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    buffer = heap_caps_malloc(stack_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
     if(!buffer) {
         buffer = heap_caps_malloc(stack_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        FURI_LOG_W(TAG, "Stack for '%s' (%lu B) in internal RAM (PSRAM full)",
-            name ? name : "?", (unsigned long)stack_size);
     }
     return buffer;
 }
@@ -409,6 +405,11 @@ void furi_thread_start(FuriThread* thread) {
     furi_check(thread->callback);
     furi_check(thread->state == FuriThreadStateStopped);
     furi_check(thread->stack_size > 0);
+    if(!thread->stack_buffer) {
+        furi_thread_set_state(thread, FuriThreadStateStopping);
+        furi_thread_set_state(thread, FuriThreadStateStopped);
+        return;
+    }
 
     furi_thread_set_state(thread, FuriThreadStateStarting);
 

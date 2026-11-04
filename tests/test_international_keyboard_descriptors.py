@@ -53,7 +53,7 @@ class InternationalKeyboardDescriptorTest(unittest.TestCase):
         )
         if tinyusb is None:
             self.fail("locked espressif/tinyusb dependency is missing")
-        self.assertEqual(tinyusb.group(1).strip(" '\""), "0.21.0~1")
+        self.assertEqual(tinyusb.group(1).strip(" '\""), "0.21.0~2")
 
     def test_ble_keyboard_descriptor_accepts_full_usage_byte_range(self) -> None:
         descriptor = _array_body(BLE_HID.read_text(encoding="utf-8"), "ble_hid_report_map")

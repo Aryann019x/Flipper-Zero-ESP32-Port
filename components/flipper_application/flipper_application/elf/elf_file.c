@@ -553,6 +553,14 @@ static ELFLoadSectionResult
     }
 
 #ifdef ESP_PLATFORM
+    /* This loader's executable alias requires the S3 full-XIP mapping.
+     * Never execute an unmapped PSRAM/internal-DRAM fallback on small boards. */
+#if !CONFIG_IDF_TARGET_ESP32S3 || !CONFIG_SPIRAM_FETCH_INSTRUCTIONS || !CONFIG_SPIRAM_RODATA
+    if(section_header->sh_flags & SHF_EXECINSTR) {
+        FURI_LOG_E(TAG, "Executable FAPs require ESP32-S3 with full PSRAM XIP");
+        return ELFLoadSectionResultError;
+    }
+#endif
     /* Force PSRAM allocation so PSRAM_DATA_TO_INST (0x3C->0x42) works.
      * Internal DRAM (0x3FC...) has a different instruction bus mapping
      * that our simple offset conversion doesn't handle. */
@@ -560,13 +568,17 @@ static ELFLoadSectionResult
         section_header->sh_addralign,
         section_header->sh_size,
         MALLOC_CAP_SPIRAM);
-    if(!section->data) {
-        /* Fallback to any available memory */
+    if(!section->data && !(section_header->sh_flags & SHF_EXECINSTR)) {
+        /* Non-executable data may fall back to internal RAM. */
         section->data = aligned_malloc(section_header->sh_size, section_header->sh_addralign);
     }
 #else
     section->data = aligned_malloc(section_header->sh_size, section_header->sh_addralign);
 #endif
+    if(!section->data) {
+        FURI_LOG_E(TAG, "No memory for section (%lu bytes)", (unsigned long)section_header->sh_size);
+        return ELFLoadSectionResultNoMemory;
+    }
     section->size = section_header->sh_size;
 
     if(section_header->sh_type == SHT_NOBITS) {

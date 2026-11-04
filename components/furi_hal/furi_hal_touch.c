@@ -114,7 +114,8 @@ void furi_hal_touch_get_last_raw(uint16_t* raw_x, uint16_t* raw_y) {
 
 /* One 24-clock transfer: 8-bit command + 16 clocks carrying the left-aligned
  * 12-bit result in the last two bytes. */
-static uint16_t xpt2046_spi_transfer(uint8_t cmd) {
+static bool xpt2046_spi_transfer(uint8_t cmd, uint16_t* value) {
+    if(!value) return false;
     uint8_t tx[3] = {cmd, 0x00, 0x00};
     uint8_t rx[3] = {0x00, 0x00, 0x00};
 
@@ -124,11 +125,14 @@ static uint16_t xpt2046_spi_transfer(uint8_t cmd) {
         .rx_buffer = rx,
     };
 
-    if(spi_device_transmit(xpt2046_dev, &transaction) != ESP_OK) {
-        return 0;
+    esp_err_t err = spi_device_transmit(xpt2046_dev, &transaction);
+    if(err != ESP_OK) {
+        ESP_LOGW(TAG, "XPT2046 SPI read failed: %s", esp_err_to_name(err));
+        return false;
     }
 
-    return (uint16_t)((((uint16_t)rx[1] << 8) | rx[2]) >> 3) & 0x0FFFu;
+    *value = (uint16_t)((((uint16_t)rx[1] << 8) | rx[2]) >> 3) & 0x0FFFu;
+    return true;
 }
 
 #ifndef BOARD_TOUCH_MEDIAN_SAMPLES
@@ -143,11 +147,13 @@ static uint32_t xpt2046_abs_diff(uint16_t a, uint16_t b) {
  * stable. The middle-5 spread must still fit the tolerance, otherwise the
  * whole set is rejected (idle bus / wildly unsteady contact). Boards without
  * BOARD_TOUCH_MEDIAN_SAMPLES keep the original 2-sample path untouched. */
-static uint16_t xpt2046_read_axis_median(uint8_t cmd, uint32_t* spread) {
+static bool xpt2046_read_axis_median(uint8_t cmd, uint16_t* value, uint32_t* spread) {
     uint16_t s[BOARD_TOUCH_MEDIAN_SAMPLES];
+    bool success = true;
     for(int i = 0; i < BOARD_TOUCH_MEDIAN_SAMPLES; i++) {
-        s[i] = xpt2046_spi_transfer(cmd);
+        if(!xpt2046_spi_transfer(cmd, &s[i])) success = false;
     }
+    if(!success) return false;
     for(int i = 1; i < BOARD_TOUCH_MEDIAN_SAMPLES; i++) {
         uint16_t k = s[i];
         int j = i - 1;
@@ -165,7 +171,8 @@ static uint16_t xpt2046_read_axis_median(uint8_t cmd, uint32_t* spread) {
     uint32_t acc = 0;
     for(int i = lo; i <= hi; i++) acc += s[i];
     if(spread) *spread = (uint32_t)s[hi] - s[lo];
-    return (uint16_t)(acc / (uint32_t)(hi - lo + 1));
+    *value = (uint16_t)(acc / (uint32_t)(hi - lo + 1));
+    return true;
 }
 #endif
 
@@ -181,23 +188,31 @@ static int xpt2046_read_raw_ex(uint16_t* raw_x, uint16_t* raw_y, bool wait) {
         return -1;
     }
     /* First conversion after a channel switch can be stale, so take two. */
-    xpt2046_spi_transfer(XPT2046_CMD_READ_X);
+    uint16_t discard = 0;
+    if(!xpt2046_spi_transfer(XPT2046_CMD_READ_X, &discard)) {
+        furi_hal_spi_bus_unlock();
+        return -2;
+    }
 #ifdef BOARD_TOUCH_MEDIAN_SAMPLES
     uint32_t xspread = 0, yspread = 0;
-    uint16_t x = xpt2046_read_axis_median(XPT2046_CMD_READ_X, &xspread);
-    xpt2046_spi_transfer(XPT2046_CMD_READ_Y);
-    uint16_t y = xpt2046_read_axis_median(XPT2046_CMD_READ_Y, &yspread);
+    uint16_t x = 0, y = 0;
+    bool x_ok = xpt2046_read_axis_median(XPT2046_CMD_READ_X, &x, &xspread);
+    bool y_select_ok = xpt2046_spi_transfer(XPT2046_CMD_READ_Y, &discard);
+    bool y_ok = xpt2046_read_axis_median(XPT2046_CMD_READ_Y, &y, &yspread);
     furi_hal_spi_bus_unlock();
+    if(!x_ok || !y_select_ok || !y_ok) return -2;
 
     if(xspread > BOARD_TOUCH_RAW_TOLERANCE) return 0;
     if(yspread > BOARD_TOUCH_RAW_TOLERANCE) return 0;
 #else
-    uint16_t x1 = xpt2046_spi_transfer(XPT2046_CMD_READ_X);
-    uint16_t x2 = xpt2046_spi_transfer(XPT2046_CMD_READ_X);
-    xpt2046_spi_transfer(XPT2046_CMD_READ_Y);
-    uint16_t y1 = xpt2046_spi_transfer(XPT2046_CMD_READ_Y);
-    uint16_t y2 = xpt2046_spi_transfer(XPT2046_CMD_READ_Y);
+    uint16_t x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    bool x1_ok = xpt2046_spi_transfer(XPT2046_CMD_READ_X, &x1);
+    bool x2_ok = xpt2046_spi_transfer(XPT2046_CMD_READ_X, &x2);
+    bool y_select_ok = xpt2046_spi_transfer(XPT2046_CMD_READ_Y, &discard);
+    bool y1_ok = xpt2046_spi_transfer(XPT2046_CMD_READ_Y, &y1);
+    bool y2_ok = xpt2046_spi_transfer(XPT2046_CMD_READ_Y, &y2);
     furi_hal_spi_bus_unlock();
+    if(!x1_ok || !x2_ok || !y_select_ok || !y1_ok || !y2_ok) return -2;
 
     if(xpt2046_abs_diff(x1, x2) > BOARD_TOUCH_RAW_TOLERANCE) return 0;
     if(xpt2046_abs_diff(y1, y2) > BOARD_TOUCH_RAW_TOLERANCE) return 0;
@@ -420,6 +435,44 @@ void furi_hal_touch_set_notify_thread(void* thread_id) {
 #define TOUCH_RST_HIGH_MS  50
 #endif
 
+static esp_err_t touch_i2c_init(void) {
+    const i2c_port_t port = TOUCH_I2C_PORT;
+    const i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = TOUCH_SDA_PIN,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_io_num = TOUCH_SCL_PIN,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = TOUCH_I2C_FREQ_HZ,
+        .clk_flags = 0,
+    };
+
+    esp_err_t err = i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0);
+    if(err == ESP_OK) {
+        err = i2c_param_config(port, &conf);
+        if(err != ESP_OK) {
+            i2c_driver_delete(port);
+        }
+        return err;
+    }
+
+    if(err != ESP_ERR_INVALID_STATE) {
+        return err;
+    }
+
+    /* The power service may already have created this shared Qwiic/NFC bus.
+     * Reconfigure it only when its pins exactly match this touch controller. */
+#if defined(BOARD_PIN_QWIIC_SDA) && defined(BOARD_PIN_QWIIC_SCL)
+    if(TOUCH_I2C_PORT != I2C_NUM_0 || TOUCH_SDA_PIN != BOARD_PIN_QWIIC_SDA ||
+       TOUCH_SCL_PIN != BOARD_PIN_QWIIC_SCL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+#else
+    return i2c_param_config(port, &conf);
+#endif
+}
+
 static bool touch_i2c_read(uint8_t reg, uint8_t* data, size_t len) {
 #ifdef BOARD_TOUCH_AXS5106L
     /* The AXS5106L does NOT support I2C repeated-start: it needs a STOP between
@@ -463,13 +516,10 @@ static bool touch_read_point(uint8_t* finger_count, uint16_t* x, uint16_t* y) {
 void furi_hal_touch_init(void) {
     ESP_LOGI(TAG, "Initializing %s touch controller", TOUCH_CHIP_NAME);
 
-    /* Pulse the touch controller's reset line before talking to it. The
-     * Waveshare C6-LCD boards hold the controller in reset unless the host
-     * drives TP_RST high — without this the chip never ACKs on I2C. Active-low
-     * reset: low for RST_LOW_MS, then high, then RST_HIGH_MS for the chip to
-     * boot (the AXS5106L needs ~200/300ms, the CST816S much less). Boards with
-     * no TP_RST pin (or a hardware pull-up, e.g. the 1.9) are unaffected. */
-#ifdef BOARD_PIN_TOUCH_RST
+    /* UINT16_MAX is the board-wide "not wired" sentinel, not GPIO0xFFFF. */
+#if defined(BOARD_PIN_TOUCH_RST) && BOARD_PIN_TOUCH_RST != UINT16_MAX
+    /* Active-low reset. Hardware without a reset wire must leave the macro
+     * undefined or set it to UINT16_MAX. */
     gpio_set_direction((gpio_num_t)BOARD_PIN_TOUCH_RST, GPIO_MODE_OUTPUT);
     gpio_set_level((gpio_num_t)BOARD_PIN_TOUCH_RST, 0);
     furi_delay_ms(TOUCH_RST_LOW_MS);
@@ -477,26 +527,9 @@ void furi_hal_touch_init(void) {
     furi_delay_ms(TOUCH_RST_HIGH_MS);
 #endif
 
-    /* Initialize I2C bus (legacy driver, same as Waveshare demo) */
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = TOUCH_SDA_PIN,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_io_num = TOUCH_SCL_PIN,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = TOUCH_I2C_FREQ_HZ,
-        .clk_flags = 0,
-    };
-
-    esp_err_t err = i2c_param_config(TOUCH_I2C_PORT, &conf);
+    esp_err_t err = touch_i2c_init();
     if(err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C param config failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    err = i2c_driver_install(TOUCH_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
-    if(err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C driver install failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "I2C bus init failed: %s", esp_err_to_name(err));
         return;
     }
 

@@ -25,3 +25,14 @@ releases/*.zip
 *-backup-*
 *.backup-*
 /tmp/
+
+# Local ESP-IDF output (never commit)
+/sdkconfig
+build*/
+
+# IDE / caches
+.idea/
+.freebuff/
+**/.gradle/
+**/.kotlin/
+**/__pycache__/
